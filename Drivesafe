@@ -1,1 +1,80 @@
+import cv2
+import mediapipe as mp
+import numpy as np
+import pygame
+import time
 
+# Initialize sound
+pygame.mixer.init()
+alarm_sound = pygame.mixer.Sound('beep.wav')  # optional if you have sound file
+
+# EAR threshold
+EAR_THRESHOLD = 0.25
+DROWSY_FRAMES = 15
+
+counter = 0
+
+# MediaPipe setup
+mp_face_mesh = mp.solutions.face_mesh
+face_mesh = mp_face_mesh.FaceMesh()
+
+# Eye landmark indices
+LEFT_EYE = [33, 160, 158, 133, 153, 144]
+RIGHT_EYE = [362, 385, 387, 263, 373, 380]
+
+def ear(eye):
+    A = np.linalg.norm(eye[1] - eye[5])
+    B = np.linalg.norm(eye[2] - eye[4])
+    C = np.linalg.norm(eye[0] - eye[3])
+    return (A + B) / (2.0 * C)
+
+cap = cv2.VideoCapture(0)
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    result = face_mesh.process(rgb)
+
+    if result.multi_face_landmarks:
+        face = result.multi_face_landmarks[0]
+        h, w, _ = frame.shape
+
+        left_eye = []
+        right_eye = []
+
+        for i in LEFT_EYE:
+            lm = face.landmark[i]
+            left_eye.append(np.array([lm.x * w, lm.y * h]))
+
+        for i in RIGHT_EYE:
+            lm = face.landmark[i]
+            right_eye.append(np.array([lm.x * w, lm.y * h]))
+
+        ear_val = (ear(left_eye) + ear(right_eye)) / 2
+
+        cv2.putText(frame, f"EAR: {ear_val:.2f}", (30, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+
+        if ear_val < EAR_THRESHOLD:
+            counter += 1
+        else:
+            counter = 0
+
+        if counter >= DROWSY_FRAMES:
+            cv2.putText(frame, "DROWSY!", (100,100),
+                        cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,255), 3)
+            try:
+                alarm_sound.play()
+            except:
+                pass
+
+    cv2.imshow("Drowsiness Detection", frame)
+
+    if cv2.waitKey(1) & 0xFF == 27:
+        break
+
+cap.release()
+cv2.destroyAllWindows()
